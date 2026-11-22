@@ -5967,6 +5967,187 @@ export const getDemoMonitoringAnalytics = (request?: MonitoringAnalyticsRequest)
   clone(
     filterDemoMonitoringAnalyticsByCredential(buildMonitoringAnalytics(undefined, request), request)
   );
+const DEMO_DASHBOARD_HISTORY_DAYS = 45;
+// A believable handful of the demo credentials, rather than all of them.
+const DEMO_DASHBOARD_CREDENTIAL_IDS = [
+  'claude-team-01.json',
+  'codex-team-01.json',
+  'claude-research-02.json',
+  'codex-pro-20x-01.json',
+  'kimi-coding.json',
+  'xai-ops.json',
+  'codex-email-user.json',
+];
+// Kimi's demo seat runs a model the demo price list lacks, so the dashboard has unpriced usage to disclose.
+const DEMO_DASHBOARD_UNPRICED_PROVIDER_MODELS: Record<string, string> = { kimi: 'kimi-k2' };
+// What an hour of demo activity adds up to across the 14 days the credential totals describe.
+const DEMO_DASHBOARD_ACTIVITY_PER_FORTNIGHT = 133;
+
+// Deterministic, so reloading the demo redraws the same history.
+const demoDashboardNoise = (seed: number) => {
+  const value = Math.sin(seed * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+const demoDashboardActivity = (hourMs: number, credentialIndex: number) => {
+  const date = new Date(hourMs);
+  const hourOfDay = date.getHours();
+  const rhythm =
+    hourOfDay >= 9 && hourOfDay <= 18 ? 1 : hourOfDay >= 20 && hourOfDay <= 22 ? 0.4 : 0.08;
+  const weekend = date.getDay() === 0 || date.getDay() === 6;
+  const burst = demoDashboardNoise(hourMs / hour + credentialIndex * 7.13);
+  return rhythm * (weekend ? 0.3 : 1) * (0.25 + burst * burst * 2.2);
+};
+
+/**
+ * Usage for the dashboard: unlike the shared analytics fixture it follows the
+ * requested window and credential, spreading each demo credential's totals over
+ * an hourly history.
+ */
+export const getDemoDashboardUsage = (
+  request: MonitoringAnalyticsRequest
+): MonitoringAnalyticsResponse => {
+  const nowMs = request.now_ms ?? now();
+  const base = buildMonitoringAnalytics(nowMs);
+  const selected = new Set(request.filters?.credential_ids ?? []);
+  const currentHour = new Date(nowMs).setMinutes(0, 0, 0);
+  const firstHour = Math.max(
+    new Date(request.from_ms).setMinutes(0, 0, 0),
+    currentHour - DEMO_DASHBOARD_HISTORY_DAYS * day
+  );
+  const totals = { calls: 0, input: 0, output: 0, cacheRead: 0, tokens: 0, cost: 0 };
+  type Totals = typeof totals;
+  const add = (target: Totals, part: Totals) => {
+    (Object.keys(part) as Array<keyof Totals>).forEach((key) => {
+      target[key] += part[key];
+    });
+  };
+  const timeline = new Map<number, Totals>();
+  const models = new Map<string, Totals>();
+  const heatmap = new Map<number, Totals>();
+  const credentials = new Map<string, Totals>();
+  const rows = (base.credential_stats ?? []).filter((row) =>
+    DEMO_DASHBOARD_CREDENTIAL_IDS.includes(row.id)
+  );
+  let selectedShare = 0;
+
+  rows.forEach((row, index) => {
+    const rowModels = row.models ?? [];
+    const unpricedModel = DEMO_DASHBOARD_UNPRICED_PROVIDER_MODELS[row.auth_provider_snapshot ?? ''];
+    const inputShare = 0.97 - (index % 3) * 0.012;
+    const cacheShare = 0.9 - (index % 4) * 0.07;
+    if (selected.has(row.id)) selectedShare += safeRate(row.total_tokens, base.summary?.total_tokens ?? 0);
+    if (selected.size > 0 && !selected.has(row.id)) return;
+
+    for (let hourMs = firstHour; hourMs < request.to_ms; hourMs += hour) {
+      const covered =
+        (Math.min(request.to_ms, hourMs + hour) - Math.max(request.from_ms, hourMs)) / hour;
+      const activity = demoDashboardActivity(hourMs, index) * Math.max(0, covered);
+      rowModels.forEach((model) => {
+        const tokens = Math.round(
+          (model.total_tokens / DEMO_DASHBOARD_ACTIVITY_PER_FORTNIGHT) * activity
+        );
+        if (tokens <= 0) return;
+        const input = Math.round(tokens * inputShare);
+        const part: Totals = {
+          calls: Math.max(1, Math.round(tokens / 9_000)),
+          input,
+          output: tokens - input,
+          cacheRead: Math.round(input * cacheShare),
+          tokens,
+          cost: unpricedModel ? 0 : (model.cost / model.total_tokens) * tokens,
+        };
+        const local = new Date(hourMs);
+        const targets: Array<[Map<string | number, Totals>, string | number]> = [
+          [timeline, hourMs],
+          [models, unpricedModel ?? model.model],
+          [heatmap, local.getDay() * 24 + local.getHours()],
+          [credentials, row.id],
+        ];
+        targets.forEach(([target, key]) => {
+          const entry = target.get(key) ?? { ...totals };
+          add(entry, part);
+          target.set(key, entry);
+        });
+      });
+    }
+  });
+  [...timeline.values()].forEach((part) => add(totals, part));
+
+  const tokenFields = (part: Totals) => ({
+    input_tokens: part.input,
+    output_tokens: part.output,
+    cached_tokens: 0,
+    cache_read_tokens: part.cacheRead,
+    cache_creation_tokens: 0,
+    cache_hit_rate: safeRate(part.cacheRead, part.input),
+    total_tokens: part.tokens,
+  });
+  const callFields = (part: Totals) => ({
+    success_calls: part.calls,
+    failure_calls: 0,
+    success_rate: part.calls > 0 ? 1 : 0,
+  });
+  const dashboard = dashboardBase(nowMs);
+  const liveShare = selected.size > 0 ? selectedShare : 1;
+
+  return clone({
+    generated_at_ms: nowMs,
+    granularity: 'hour',
+    summary: base.summary && {
+      ...base.summary,
+      ...tokenFields(totals),
+      ...callFields(totals),
+      total_calls: totals.calls,
+      total_cost: round2(totals.cost),
+      rpm_30m: round2(dashboard.rolling_30m.rpm * liveShare),
+      tpm_30m: Math.round(dashboard.rolling_30m.tpm * liveShare),
+    },
+    timeline: [...timeline.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([bucketMs, part]) => ({
+        bucket_ms: bucketMs,
+        label: new Date(bucketMs).toLocaleString(),
+        calls: part.calls,
+        tokens: part.tokens,
+        success: part.calls,
+        failure: 0,
+        ...tokenFields(part),
+        cost: part.cost,
+      })),
+    heatmap: [...heatmap.entries()].map(([slot, part]) => ({
+      weekday: Math.floor(slot / 24),
+      hour: slot % 24,
+      calls: part.calls,
+      success: part.calls,
+      failure: 0,
+      tokens: part.tokens,
+      cost: part.cost,
+      failure_rate: 0,
+    })),
+    model_stats: [...models.entries()].map(([model, part]) => ({
+      model,
+      calls: part.calls,
+      ...callFields(part),
+      ...tokenFields(part),
+      cost: round2(part.cost),
+    })),
+    credential_stats: rows
+      .filter((row) => credentials.has(row.id))
+      .map((row) => {
+        const part = credentials.get(row.id) ?? totals;
+        return {
+          ...row,
+          calls: part.calls,
+          ...callFields(part),
+          ...tokenFields(part),
+          cost: round2(part.cost),
+          models: undefined,
+        };
+      }),
+  });
+};
+
 export const getDemoAccountHistory = (
   request: MonitoringAccountHistoryRequest
 ): MonitoringAccountHistoryResponse => {

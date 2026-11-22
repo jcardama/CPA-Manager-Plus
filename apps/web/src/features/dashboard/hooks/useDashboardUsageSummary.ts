@@ -12,21 +12,9 @@ const getTodayStartMs = () => {
 };
 
 export interface UseDashboardUsageSummaryReturn {
-  enabled: boolean;
   loading: boolean;
   error: string;
   summary: DashboardSummaryResponse | null;
-  recentFailures: DashboardSummaryResponse['recent_failures'];
-  topModels: DashboardSummaryResponse['top_models_today'];
-  modelCostRank: NonNullable<DashboardSummaryResponse['model_cost_rank']>;
-  trafficTimeline: NonNullable<DashboardSummaryResponse['traffic_timeline']>;
-  hourlyActivity: NonNullable<DashboardSummaryResponse['hourly_activity']>;
-  todayRequestHealthTimeline: NonNullable<DashboardSummaryResponse['today_request_health_timeline']> | null;
-  tokenMix: NonNullable<DashboardSummaryResponse['token_mix']>;
-  channelHealth: NonNullable<DashboardSummaryResponse['channel_health']>;
-  failureSources: NonNullable<DashboardSummaryResponse['failure_sources']>;
-  lastRefreshedAt: Date | null;
-  serviceBase: string;
   refresh: () => Promise<void>;
 }
 
@@ -36,7 +24,6 @@ export function useDashboardUsageSummary(): UseDashboardUsageSummaryReturn {
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestIdRef = useRef(0);
 
   const enabled = availability.available && Boolean(availability.serviceBase);
@@ -45,7 +32,6 @@ export function useDashboardUsageSummary(): UseDashboardUsageSummaryReturn {
   useLayoutEffect(() => {
     requestIdRef.current += 1;
     setSummary(null);
-    setLastRefreshedAt(null);
     setError('');
     setLoading(enabled);
     return () => {
@@ -56,7 +42,6 @@ export function useDashboardUsageSummary(): UseDashboardUsageSummaryReturn {
   const refresh = useCallback(async () => {
     if (!enabled || !serviceBase) {
       setSummary(null);
-      setLastRefreshedAt(null);
       setLoading(false);
       return;
     }
@@ -70,12 +55,9 @@ export function useDashboardUsageSummary(): UseDashboardUsageSummaryReturn {
       const response = await dashboardApi.getSummary(serviceBase, managementKey, {
         todayStartMs: getTodayStartMs(),
         nowMs: Date.now(),
-        topModels: 5,
-        recentFailures: 5,
       });
       if (requestIdRef.current !== requestId) return;
       setSummary(response);
-      setLastRefreshedAt(new Date());
     } catch (err) {
       if (requestIdRef.current !== requestId) return;
       setError(err instanceof Error ? err.message : String(err));
@@ -104,24 +86,7 @@ export function useDashboardUsageSummary(): UseDashboardUsageSummaryReturn {
   }, [enabled, refresh]);
 
   return useMemo(
-    () => ({
-      enabled,
-      loading: availability.checking || loading,
-      error,
-      summary,
-      recentFailures: summary?.recent_failures ?? [],
-      topModels: summary?.top_models_today ?? [],
-      modelCostRank: summary?.model_cost_rank ?? [],
-      trafficTimeline: summary?.traffic_timeline ?? [],
-      hourlyActivity: summary?.hourly_activity ?? [],
-      todayRequestHealthTimeline: summary?.today_request_health_timeline ?? null,
-      tokenMix: summary?.token_mix ?? [],
-      channelHealth: summary?.channel_health ?? [],
-      failureSources: summary?.failure_sources ?? [],
-      lastRefreshedAt,
-      serviceBase,
-      refresh,
-    }),
-    [availability.checking, enabled, error, lastRefreshedAt, loading, refresh, serviceBase, summary]
+    () => ({ loading: availability.checking || loading, error, summary, refresh }),
+    [availability.checking, error, loading, refresh, summary]
   );
 }

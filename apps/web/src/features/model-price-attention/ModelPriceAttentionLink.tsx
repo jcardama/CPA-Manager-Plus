@@ -55,7 +55,7 @@ export function ModelPriceAttentionLink({
     );
   }
 
-  // Inline variant for Dashboard & Usage Analytics: only shown when pending > 0
+  // Inline variant for Usage Analytics: only shown when pending > 0
   if (!attention.hasAttention) {
     return null;
   }

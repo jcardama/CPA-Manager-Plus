@@ -14,6 +14,7 @@ export const getDemoPluginStore = () => ({ sources: [], plugins: [] });
 export const getDemoManagerConfig = () => emptyObject;
 export const getDemoDashboardSummary = () => emptyObject;
 export const getDemoMonitoringAnalytics = () => emptyObject;
+export const getDemoDashboardUsage = () => emptyObject;
 export const getDemoAccountHistory = () => ({
   generated_at_ms: Date.now(),
   checkpoint: {

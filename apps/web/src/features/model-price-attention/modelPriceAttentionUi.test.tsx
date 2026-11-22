@@ -1,10 +1,8 @@
-import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TFunction } from 'i18next';
 import { MonitoringActionBar } from '@/features/monitoring/components/MonitoringActionBar';
-import { UsageMetricsCard } from '@/features/dashboard/components/UsageMetricsCard';
 import { UsageSummaryCardView, UsageSummaryGrid } from '@/features/usage-analytics/components/UsageSummaryCards';
 import * as attentionHook from './useModelPriceAttention';
 import enLocale from '@/i18n/locales/en.json';
@@ -31,9 +29,6 @@ vi.mock('react-i18next', async (importOriginal) => {
         }
         if (key === 'model_prices.pending_sync_badge') {
           return '待同步';
-        }
-        if (key === 'dashboard.today_cost') {
-          return '今日成本';
         }
         if (key === 'usage_analytics.metric_estimated_cost') {
           return '预估成本';
@@ -141,78 +136,6 @@ describe('ModelPriceAttention UI Integration', () => {
       expect(link.props.title).toBe('发现 1 个新模型待同步价格');
       const dot = root.findByProps({ 'data-testid': 'model-price-attention-dot' });
       expect(dot).toBeDefined();
-    });
-  });
-
-  describe('Dashboard UsageMetricsCard', () => {
-    const defaultSummary = {
-      today: {
-        total_calls: 100,
-        success_calls: 95,
-        total_tokens: 10000,
-        total_cost: 12.34,
-        average_latency_ms: 120,
-        zero_token_calls: 2,
-        success_rate: 0.95,
-      },
-      rolling_30m: {
-        rpm: 10,
-        tpm: 500,
-        total_tokens: 2000,
-      },
-      top_models_today: [],
-      model_cost_rank: [],
-    };
-
-    it('keeps cost UI untouched when pending = 0', () => {
-      mockAttentionState.pendingCount = 0;
-      mockAttentionState.hasAttention = false;
-
-      let renderer: ReactTestRenderer;
-      act(() => {
-        renderer = create(
-          <MemoryRouter>
-            <UsageMetricsCard
-              summary={defaultSummary as unknown as ComponentProps<typeof UsageMetricsCard>['summary']}
-              topModels={[]}
-              modelCostRank={[]}
-              loading={false}
-              lastRefreshedAt={new Date()}
-              mode="metrics-only"
-            />
-          </MemoryRouter>
-        );
-      });
-
-      const root = renderer!.root;
-      expect(root.findAllByProps({ 'data-testid': 'inline-model-price-attention-link' })).toHaveLength(0);
-    });
-
-    it('renders inline attention link in cost area when pending > 0', () => {
-      mockAttentionState.pendingModels = ['new-model'];
-      mockAttentionState.pendingCount = 1;
-      mockAttentionState.hasAttention = true;
-
-      let renderer: ReactTestRenderer;
-      act(() => {
-        renderer = create(
-          <MemoryRouter>
-            <UsageMetricsCard
-              summary={defaultSummary as unknown as ComponentProps<typeof UsageMetricsCard>['summary']}
-              topModels={[]}
-              modelCostRank={[]}
-              loading={false}
-              lastRefreshedAt={new Date()}
-              mode="metrics-only"
-            />
-          </MemoryRouter>
-        );
-      });
-
-      const root = renderer!.root;
-      const link = root.findByProps({ 'data-testid': 'inline-model-price-attention-link' });
-      expect(link.props.to).toBe('/model-prices?filter=missing');
-      expect(link.props.title).toBe('发现 1 个新模型待同步价格');
     });
   });
 

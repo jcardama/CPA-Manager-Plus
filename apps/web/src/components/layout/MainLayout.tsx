@@ -274,6 +274,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
   const fullBrandName = 'CPA Manager Plus';
   const isLogsPage = routePathname.startsWith('/logs');
   const isPluginResourcePage = routePathname.startsWith('/plugin-pages');
+  const isDashboardPage = routePathname === '/' || routePathname === '/dashboard';
   const showSidebarLabels = !sidebarCollapsed || sidebarOpen;
   const configPluginsEnabled = config?.pluginsEnabled;
   const pluginControlMenuVisible = isPluginManagementNavVisible({
@@ -996,6 +997,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
               'main-content',
               isLogsPage ? 'main-content-logs' : '',
               isPluginResourcePage ? 'main-content-plugin-resource' : '',
+              isDashboardPage ? 'main-content-flush' : '',
             ]
               .filter(Boolean)
               .join(' ')}

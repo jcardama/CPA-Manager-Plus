@@ -1,744 +1,314 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  IconBot,
-  IconFileText,
-  IconKey,
-  IconRefreshCw,
-  IconSatellite,
-  IconSettings,
-} from '@/components/ui/icons';
-import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
-import { apiKeysApi, providersApi, authFilesApi } from '@/services/api';
-import { logsApi, type ErrorLogFile } from '@/services/api/logs';
-import {
-  usageServiceApi,
-  type ApiKeyAlias,
-  type UsageServiceStatus,
-} from '@/services/api/usageService';
+import { useAuthStore } from '@/stores';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePanelFeatureAvailability } from '@/hooks/usePanelFeatureAvailability';
-import { loadMonitoringMetaPayload } from '@/features/monitoring/services/monitoringMetaService';
-import { buildMonitoringAuthMetaMap } from '@/features/monitoring/model/authMeta';
-import { buildAuthFileMapFromMeta } from '@/features/monitoring/model/sourceDisplay';
-import type { MonitoringChannelMeta } from '@/features/monitoring/model/types';
-import { buildSourceInfoMap } from '@/utils/sourceResolver';
-import { normalizeRoutingStrategy } from '@/utils/routingStrategy';
-import type { AuthFileItem } from '@/types/authFile';
-import { VersionCard } from './components/VersionCard';
-import { UsageMetricsCard } from './components/UsageMetricsCard';
-import { CollectorStatusCard } from './components/CollectorStatusCard';
-import { HealthAlertsCard } from './components/HealthAlertsCard';
-import { TrafficOverviewCard } from './components/TrafficOverviewCard';
-import { useDashboardUsageSummary } from './hooks/useDashboardUsageSummary';
-import { getDashboardModelCountDisplay } from './modelCountDisplay';
-import { resolveProviderCount } from './providerStats';
+import { CredentialList } from './components/CredentialList';
+import { ModelRankLists } from './components/ModelRankLists';
+import { StatusLine } from './components/StatusLine';
+import { UsageHeatmap } from './components/UsageHeatmap';
+import { UsageKpis } from './components/UsageKpis';
+import { UsageTimeline } from './components/UsageTimeline';
+import { FOOTPRINT, type TimelineText } from './components/timelineChart';
+import { useUsageDashboard, type UsageDashboardData } from './hooks/useUsageDashboard';
+import {
+  USAGE_RANGES,
+  averageTpm,
+  buildCredentialRows,
+  buildHeatmapGrid,
+  buildModelRanks,
+  buildUsageBuckets,
+  buildUsageKpis,
+  credentialName,
+  findPeakTpm,
+  type CredentialRow,
+  type UsageRange,
+} from './usageDashboardModel';
+import { createUsageFormatters, formatCompact } from './usageDashboardFormat';
 import styles from './DashboardPage.module.scss';
 
-interface QuickStat {
-  label: string;
-  value: number | string;
-  icon: React.ReactNode;
-  path: string;
-  loading?: boolean;
-  sublabel?: string;
-}
-
-interface ProviderStats {
-  gemini: number | null;
-  codex: number | null;
-  xai: number | null;
-  claude: number | null;
-  openai: number | null;
-}
-
-interface DashboardDisplayMeta {
-  authFiles: AuthFileItem[];
-  channels: MonitoringChannelMeta[];
-  apiKeyAliases: ApiKeyAlias[];
-}
-
-const HEALTH_REFRESH_INTERVAL_MS = 60_000;
+const NO_BUCKETS: never[] = [];
 
 export function DashboardPage() {
   const connectionScope = useAuthStore((state) =>
     JSON.stringify([state.apiBase, state.managementKey])
   );
-  const featureAvailability = usePanelFeatureAvailability();
-  const useApiBaseAsCpaBase =
-    featureAvailability.panelHostConfirmed &&
-    featureAvailability.panelHostMode === 'external_panel';
+  const { managerServiceBase } = usePanelFeatureAvailability();
 
-  return (
-    <DashboardPageContent
-      key={`${connectionScope}:${featureAvailability.managerServiceBase}`}
-      useApiBaseAsCpaBase={useApiBaseAsCpaBase}
-    />
-  );
+  // A new connection starts from a clean page instead of showing the previous one's numbers.
+  return <DashboardPageContent key={`${connectionScope}:${managerServiceBase}`} />;
 }
 
-function DashboardPageContent({ useApiBaseAsCpaBase }: { useApiBaseAsCpaBase: boolean }) {
+function buildView(data: UsageDashboardData) {
+  const scope = data.credential ?? data.all;
+  const timeline = scope.current.timeline ?? [];
+  const allTimeline = data.all.current.timeline ?? [];
+  const buckets = buildUsageBuckets(timeline, data.window, data.nowMs, allTimeline);
+  return {
+    range: data.range,
+    window: data.window,
+    nowMs: data.nowMs,
+    filtered: Boolean(data.credential),
+    buckets,
+    // All traffic stays behind a credential's bars as a reference.
+    reference: data.credential ? buildUsageBuckets(allTimeline, data.window, data.nowMs) : null,
+    peak: findPeakTpm(timeline, buckets),
+    averageTpm: averageTpm(buckets),
+    kpis: buildUsageKpis(
+      scope.current.summary,
+      scope.previous,
+      data.credential ? data.all.current.summary : null
+    ),
+    models: buildModelRanks(scope.current.model_stats ?? []),
+    heatmap: buildHeatmapGrid(scope.current.heatmap ?? []),
+    credentials: buildCredentialRows(data.all.current.credential_stats ?? []),
+    scopedLive: data.credential?.current.summary
+      ? {
+          tpm: data.credential.current.summary.tpm_30m,
+          rpm: data.credential.current.summary.rpm_30m,
+        }
+      : null,
+  };
+}
+
+function DashboardPageContent() {
   const { t, i18n } = useTranslation();
-  const connectionStatus = useAuthStore((state) => state.connectionStatus);
-  const serverVersion = useAuthStore((state) => state.serverVersion);
-  const serverBuildDate = useAuthStore((state) => state.serverBuildDate);
-  const apiBase = useAuthStore((state) => state.apiBase);
-  const managementKey = useAuthStore((state) => state.managementKey);
-  const config = useConfigStore((state) => state.config);
-  const usageSummary = useDashboardUsageSummary();
-  const refreshUsageSummary = usageSummary.refresh;
+  const usage = useUsageDashboard();
+  const { data, range, credential, setRange, setCredential } = usage;
+  const refreshUsage = usage.refresh;
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const bandRef = useRef<HTMLElement | null>(null);
+  const tabRefs = useRef<Partial<Record<UsageRange, HTMLButtonElement | null>>>({});
 
-  const models = useModelsStore((state) => state.models);
-  const modelsLoading = useModelsStore((state) => state.loading);
-  const modelsError = useModelsStore((state) => state.error);
-  const modelsCache = useModelsStore((state) => state.cache);
-  const fetchModelsFromStore = useModelsStore((state) => state.fetchModels);
+  const refresh = useCallback(async () => {
+    setRefreshSignal((value) => value + 1);
+    await refreshUsage();
+  }, [refreshUsage]);
+  useHeaderRefresh(refresh);
 
-  const [stats, setStats] = useState<{
-    apiKeys: number | null;
-    authFiles: number | null;
-  }>({
-    apiKeys: null,
-    authFiles: null,
-  });
+  const format = useMemo(() => createUsageFormatters(i18n.language), [i18n.language]);
+  const view = useMemo(() => (data ? buildView(data) : null), [data]);
 
-  const [providerStats, setProviderStats] = useState<ProviderStats>({
-    gemini: null,
-    codex: null,
-    xai: null,
-    claude: null,
-    openai: null,
-  });
-
-  const [loading, setLoading] = useState(true);
-
-  const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [cardRefreshSignal, setCardRefreshSignal] = useState(0);
-  const [collectorStatus, setCollectorStatus] = useState<UsageServiceStatus | null>(null);
-  const [collectorLoading, setCollectorLoading] = useState(false);
-  const [collectorError, setCollectorError] = useState('');
-  const [errorLogs, setErrorLogs] = useState<ErrorLogFile[]>([]);
-  const [errorLogsLoading, setErrorLogsLoading] = useState(false);
-  const [errorLogsLoaded, setErrorLogsLoaded] = useState(false);
-  const [errorLogsError, setErrorLogsError] = useState('');
-  const [managerCpaBase, setManagerCpaBase] = useState('');
-  const [healthMetaError, setHealthMetaError] = useState('');
-  const [displayMeta, setDisplayMeta] = useState<DashboardDisplayMeta>({
-    authFiles: [],
-    channels: [],
-    apiKeyAliases: [],
-  });
-
-  const apiKeysCache = useRef<string[]>([]);
-  const statsRequestId = useRef(0);
-  const healthRequestId = useRef(0);
-  const channelsSnapshotLoadedRef = useRef(false);
-  const modelRequestId = useRef(0);
-  useEffect(
-    () => () => {
-      statsRequestId.current += 1;
-      healthRequestId.current += 1;
-      modelRequestId.current += 1;
-    },
-    []
+  const timelineText = useMemo<TimelineText>(
+    () => ({
+      input: t('dashboard.tip_input'),
+      output: t('dashboard.tip_output'),
+      allCredentials: t('dashboard.tip_all_credentials'),
+      cacheHit: t('dashboard.kpi_cache_hit'),
+      cost: t('dashboard.cost'),
+      calls: t('dashboard.tip_calls'),
+      averageTpm: t('dashboard.tip_average_tpm'),
+      now: t('dashboard.axis_now'),
+      today: t('dashboard.axis_today'),
+      soFarToday: t('dashboard.bucket_so_far_today'),
+      fillingHour: t('dashboard.tip_filling_hour'),
+      fillingDay: t('dashboard.tip_filling_day'),
+      peak: t('dashboard.peak_flag'),
+      peakRate: (tpm) => t('dashboard.peak_flag_rate', { value: formatCompact(tpm) }),
+      peakTime: (ms) =>
+        `${view?.range === '24h' ? format.weekday(ms) : format.dayMonth(ms)} ${format.time(ms)}`,
+    }),
+    [format, t, view?.range]
   );
-  const [statsError, setStatsError] = useState('');
 
-  useEffect(() => {
-    apiKeysCache.current = [];
-  }, [apiBase, config?.apiKeys]);
+  const scopeText = (() => {
+    if (!view) return '';
+    const { window, nowMs } = view;
+    const name = t(`dashboard.range_name_${view.range}`);
+    if (view.range === '24h') {
+      return `${name} · ${format.weekday(window.fromMs)} ${format.time(window.fromMs)} → ${format.weekday(nowMs)} ${format.time(nowMs)} ${format.timeZone}`;
+    }
+    if (view.range === 'all') {
+      const first = view.buckets[0];
+      return first
+        ? `${name} · ${t('dashboard.scope_since', { date: format.dayMonth(first.startMs), count: view.buckets.length })} · ${format.timeZone}`
+        : name;
+    }
+    return `${name} · ${format.dayMonth(window.fromMs)} → ${format.dayMonth(nowMs)} · ${format.timeZone}`;
+  })();
 
-  // Update time every 60 seconds
-  useEffect(() => {
-    const id = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const toggleCredential = useCallback(
+    (row: CredentialRow) => {
+      setCredential(
+        credential?.id === row.id ? null : { id: row.id, label: credentialName(row) }
+      );
+    },
+    [credential, setCredential]
+  );
 
-  const normalizeApiKeyList = (input: unknown): string[] => {
-    if (!Array.isArray(input)) return [];
-    const seen = new Set<string>();
-    const keys: string[] = [];
-
-    input.forEach((item) => {
-      const record =
-        item !== null && typeof item === 'object' && !Array.isArray(item)
-          ? (item as Record<string, unknown>)
-          : null;
-      const value =
-        typeof item === 'string'
-          ? item
-          : record
-            ? (record['api-key'] ?? record['apiKey'] ?? record.key ?? record.Key)
-            : '';
-      const trimmed = String(value ?? '').trim();
-      if (!trimmed || seen.has(trimmed)) return;
-      seen.add(trimmed);
-      keys.push(trimmed);
-    });
-
-    return keys;
+  const moveRange = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = USAGE_RANGES.length - 1;
+    const target =
+      event.key === 'ArrowRight'
+        ? (index + 1) % USAGE_RANGES.length
+        : event.key === 'ArrowLeft'
+          ? (index + last) % USAGE_RANGES.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? last
+              : -1;
+    if (target < 0) return;
+    event.preventDefault();
+    setRange(USAGE_RANGES[target]);
+    tabRefs.current[USAGE_RANGES[target]]?.focus();
   };
 
-  const resolveApiKeysForModels = useCallback(async () => {
-    if (apiKeysCache.current.length) {
-      return apiKeysCache.current;
-    }
-
-    const configKeys = normalizeApiKeyList(config?.apiKeys);
-    if (configKeys.length) {
-      apiKeysCache.current = configKeys;
-      return configKeys;
-    }
-
-    try {
-      const list = await apiKeysApi.list();
-      const normalized = normalizeApiKeyList(list);
-      if (normalized.length) {
-        apiKeysCache.current = normalized;
-      }
-      return normalized;
-    } catch {
-      return [];
-    }
-  }, [config?.apiKeys]);
-
-  const fetchModels = useCallback(async () => {
-    const requestId = ++modelRequestId.current;
-    if (connectionStatus !== 'connected' || !apiBase) {
-      return;
-    }
-
-    try {
-      const apiKeys = await resolveApiKeysForModels();
-      if (requestId !== modelRequestId.current) return;
-      const primaryKey = apiKeys[0];
-      await fetchModelsFromStore(apiBase, primaryKey);
-    } catch {
-      // The models store retains its last snapshot and exposes the refresh error below.
-    }
-  }, [connectionStatus, apiBase, resolveApiKeysForModels, fetchModelsFromStore]);
-
-  const refreshStats = useCallback(async () => {
-    const requestId = ++statsRequestId.current;
-    if (connectionStatus === 'connected') {
-      setLoading(true);
-      try {
-        const [keysRes, filesRes, geminiRes, codexRes, xaiRes, claudeRes, openaiRes] =
-          await Promise.allSettled([
-            apiKeysApi.list(),
-            authFilesApi.list(),
-            providersApi.getGeminiKeys(),
-            providersApi.getCodexConfigs(),
-            providersApi.getXAIConfigs(),
-            providersApi.getClaudeConfigs(),
-            providersApi.getOpenAIProviders(),
-          ]);
-
-        if (requestId !== statsRequestId.current) return;
-        setStats((current) => ({
-          apiKeys: keysRes.status === 'fulfilled' ? keysRes.value.length : current.apiKeys,
-          authFiles:
-            filesRes.status === 'fulfilled' ? filesRes.value.files.length : current.authFiles,
-        }));
-
-        setProviderStats((current) => ({
-          gemini: resolveProviderCount(geminiRes) ?? current.gemini,
-          codex: resolveProviderCount(codexRes) ?? current.codex,
-          xai: resolveProviderCount(xaiRes, { unsupportedAsZero: true }) ?? current.xai,
-          claude: resolveProviderCount(claudeRes) ?? current.claude,
-          openai: resolveProviderCount(openaiRes) ?? current.openai,
-        }));
-        setStatsError(
-          [keysRes, filesRes, geminiRes, codexRes, xaiRes, claudeRes, openaiRes].some(
-            (result) => result.status === 'rejected'
-          )
-            ? t('notification.refresh_failed')
-            : ''
-        );
-      } finally {
-        if (requestId === statsRequestId.current) setLoading(false);
-      }
-    } else {
-      setLoading(false);
-    }
-  }, [connectionStatus, t]);
-
-  const usageEnabled = usageSummary.enabled;
-  const usageServiceBase = usageSummary.serviceBase;
-  const usageSummaryBootstrapError = Boolean(usageSummary.error && !usageSummary.summary);
-  const authMetaMap = useMemo(
-    () => buildMonitoringAuthMetaMap(displayMeta.authFiles),
-    [displayMeta.authFiles]
-  );
-  const authFileMap = useMemo(() => buildAuthFileMapFromMeta(authMetaMap), [authMetaMap]);
-  const sourceInfoMap = useMemo(
-    () =>
-      buildSourceInfoMap({
-        geminiApiKeys: config?.geminiApiKeys || [],
-        claudeApiKeys: config?.claudeApiKeys || [],
-        codexApiKeys: config?.codexApiKeys || [],
-        xaiApiKeys: config?.xaiApiKeys || [],
-        metaApiKeys: config?.metaApiKeys || [],
-        vertexApiKeys: config?.vertexApiKeys || [],
-        openaiCompatibility: config?.openaiCompatibility || [],
-      }),
-    [config]
-  );
-  const channelByAuthIndex = useMemo(() => {
-    const map = new Map<string, MonitoringChannelMeta>();
-    displayMeta.channels.forEach((channel) => {
-      channel.authIndices.forEach((authIndex) => {
-        map.set(authIndex, channel);
-      });
-    });
-    return map;
-  }, [displayMeta.channels]);
-  const apiKeyAliasMap = useMemo(() => {
-    const map = new Map<string, string>();
-    displayMeta.apiKeyAliases.forEach((item) => {
-      const hash = item.apiKeyHash?.trim().toLowerCase();
-      const alias = item.alias?.trim();
-      if (hash && alias) {
-        map.set(hash, alias);
-      }
-    });
-    return map;
-  }, [displayMeta.apiKeyAliases]);
-
-  const refreshHealth = useCallback(async () => {
-    const requestId = ++healthRequestId.current;
-    if (!usageEnabled || !usageServiceBase) {
-      setCollectorStatus(null);
-      setCollectorError('');
-      setCollectorLoading(false);
-      setErrorLogs([]);
-      setErrorLogsLoaded(false);
-      setErrorLogsError('');
-      setErrorLogsLoading(false);
-      setManagerCpaBase('');
-      setHealthMetaError('');
-      channelsSnapshotLoadedRef.current = false;
-      setDisplayMeta({ authFiles: [], channels: [], apiKeyAliases: [] });
-      return;
-    }
-
-    setCollectorLoading(true);
-    setErrorLogsLoading(true);
-
-    const [collectorResult, logsResult, managerConfigResult, metaResult, aliasesResult] =
-      await Promise.allSettled([
-        usageServiceApi.getStatus(usageServiceBase, managementKey),
-        logsApi.fetchErrorLogs(),
-        usageServiceApi.getManagerConfig(usageServiceBase, managementKey),
-        loadMonitoringMetaPayload(config),
-        usageServiceApi.getApiKeyAliases(usageServiceBase, managementKey),
-      ]);
-
-    if (requestId !== healthRequestId.current) return;
-    if (collectorResult.status === 'fulfilled') {
-      setCollectorStatus(collectorResult.value);
-      setCollectorError('');
-    } else {
-      const reason = collectorResult.reason;
-      setCollectorError(reason instanceof Error ? reason.message : String(reason));
-    }
-    setCollectorLoading(false);
-
-    if (logsResult.status === 'fulfilled') {
-      setErrorLogs(Array.isArray(logsResult.value.files) ? logsResult.value.files : []);
-      setErrorLogsLoaded(true);
-      setErrorLogsError('');
-    } else {
-      const reason = logsResult.reason;
-      setErrorLogsError(reason instanceof Error ? reason.message : String(reason));
-    }
-    setErrorLogsLoading(false);
-
-    const metaRefreshFailed =
-      metaResult.status === 'rejected' ||
-      (metaResult.status === 'fulfilled' && Boolean(metaResult.value.error));
-
-    if (managerConfigResult.status === 'fulfilled') {
-      setManagerCpaBase(managerConfigResult.value.config.cpaConnection?.cpaBaseUrl || '');
-    }
-    setHealthMetaError(
-      [managerConfigResult, aliasesResult].some((result) => result.status === 'rejected') ||
-        metaRefreshFailed
-        ? t('notification.refresh_failed')
-        : ''
-    );
-
-    const nextChannels =
-      metaResult.status === 'fulfilled' &&
-      (metaResult.value.channelsLoaded || !channelsSnapshotLoadedRef.current)
-        ? metaResult.value.channels
-        : null;
-    if (metaResult.status === 'fulfilled' && metaResult.value.channelsLoaded) {
-      channelsSnapshotLoadedRef.current = true;
-    }
-
-    setDisplayMeta((current) => ({
-      authFiles:
-        metaResult.status === 'fulfilled' && metaResult.value.authFilesLoaded
-          ? metaResult.value.authFiles
-          : current.authFiles,
-      channels: nextChannels ?? current.channels,
-      apiKeyAliases:
-        aliasesResult.status === 'fulfilled' && Array.isArray(aliasesResult.value.items)
-          ? aliasesResult.value.items
-          : current.apiKeyAliases,
-    }));
-  }, [apiBase, config, managementKey, t, usageEnabled, usageServiceBase]);
-
-  const refreshDashboard = useCallback(async () => {
-    setCurrentTime(new Date());
-    setCardRefreshSignal((value) => value + 1);
-    await Promise.all([refreshStats(), fetchModels(), refreshUsageSummary(), refreshHealth()]);
-  }, [fetchModels, refreshHealth, refreshStats, refreshUsageSummary]);
-
-  useEffect(() => {
-    void Promise.all([refreshStats(), fetchModels()]);
-  }, [fetchModels, refreshStats]);
-
-  useEffect(() => {
-    void refreshHealth();
-  }, [refreshHealth]);
-
-  useEffect(() => {
-    if (!usageEnabled) return;
-    const timer = window.setInterval(() => {
-      void refreshHealth();
-    }, HEALTH_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [refreshHealth, usageEnabled]);
-
-  useHeaderRefresh(refreshDashboard);
-
-  // Calculate total provider keys only when all provider stats are available.
-  const providerStatsReady =
-    providerStats.gemini !== null &&
-    providerStats.codex !== null &&
-    providerStats.xai !== null &&
-    providerStats.claude !== null &&
-    providerStats.openai !== null;
-  const hasProviderStats =
-    providerStats.gemini !== null ||
-    providerStats.codex !== null ||
-    providerStats.xai !== null ||
-    providerStats.claude !== null ||
-    providerStats.openai !== null;
-  const totalProviderKeys = providerStatsReady
-    ? (providerStats.gemini ?? 0) +
-      (providerStats.codex ?? 0) +
-      (providerStats.xai ?? 0) +
-      (providerStats.claude ?? 0) +
-      (providerStats.openai ?? 0)
-    : 0;
-
-  const quickStats: QuickStat[] = [
-    {
-      label: t('dashboard.management_keys'),
-      value: stats.apiKeys ?? '-',
-      icon: <IconKey size={24} />,
-      path: '/config',
-      loading: loading && stats.apiKeys === null,
-      sublabel: t('nav.config_management'),
-    },
-    {
-      label: t('nav.ai_providers'),
-      value: providerStatsReady ? totalProviderKeys : '-',
-      icon: <IconBot size={24} />,
-      path: '/ai-providers',
-      loading: loading && !hasProviderStats,
-      sublabel: hasProviderStats
-        ? t('dashboard.provider_keys_detail', {
-            gemini: providerStats.gemini ?? '-',
-            codex: providerStats.codex ?? '-',
-            xai: providerStats.xai ?? '-',
-            claude: providerStats.claude ?? '-',
-            openai: providerStats.openai ?? '-',
-          })
-        : undefined,
-    },
-    {
-      label: t('nav.accounts'),
-      value: stats.authFiles ?? '-',
-      icon: <IconFileText size={24} />,
-      path: '/accounts',
-      loading: loading && stats.authFiles === null,
-      sublabel: t('dashboard.oauth_credentials'),
-    },
-    {
-      label: t('dashboard.available_models'),
-      value: getDashboardModelCountDisplay(
-        models.length,
-        modelsLoading && !modelsCache,
-        modelsCache ? null : modelsError
-      ),
-      icon: <IconSatellite size={24} />,
-      path: '/system',
-      loading: modelsLoading && !modelsCache,
-      sublabel: t('dashboard.available_models_desc'),
-    },
-  ];
-
-  const routingStrategyRaw = config?.routingStrategy?.trim() || '';
-  const routingStrategy = normalizeRoutingStrategy(routingStrategyRaw);
-  const routingStrategyDisplay = !routingStrategyRaw
-    ? '-'
-    : routingStrategy === 'round-robin'
-      ? t('basic_settings.routing_strategy_round_robin')
-      : routingStrategy === 'weighted-round-robin'
-        ? t('basic_settings.routing_strategy_weighted_round_robin')
-        : routingStrategy === 'fill-first'
-          ? t('basic_settings.routing_strategy_fill_first')
-          : routingStrategyRaw;
-  const routingStrategyBadgeClass = !routingStrategyRaw
-    ? styles.configBadgeUnknown
-    : routingStrategy === 'round-robin'
-      ? styles.configBadgeRoundRobin
-      : routingStrategy === 'weighted-round-robin'
-        ? styles.configBadgeWeightedRoundRobin
-        : routingStrategy === 'fill-first'
-          ? styles.configBadgeFillFirst
-          : styles.configBadgeUnknown;
-
-  const formattedDate = currentTime.toLocaleDateString(i18n.language, {
-    weekday: 'long',
-  });
-
-  const formattedDateTime = currentTime.toLocaleString(i18n.language, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+  const dataAsOf = view
+    ? `${format.weekday(view.nowMs)} ${format.dayMonth(view.nowMs)} ${format.time(view.nowMs)}`
+    : null;
+  const filtered = Boolean(view?.filtered);
+  const live = view?.filtered ? view.scopedLive : usage.live;
 
   return (
-    <>
-      {/* 1. Header Section */}
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <div className={styles.connectionStatus}>
-            <span
-              className={`${styles.statusDot} ${
-                connectionStatus === 'connected'
-                  ? styles.connected
-                  : connectionStatus === 'connecting'
-                    ? styles.connecting
-                    : styles.disconnected
-              }`}
-            />
-            <div className={styles.statusInfo}>
-              <span className={styles.statusLabel}>{t('common.connection_status')}</span>
-              <span className={styles.statusValue}>
-                {t(
-                  connectionStatus === 'connected'
-                    ? 'common.connected'
-                    : connectionStatus === 'connecting'
-                      ? 'common.connecting'
-                      : 'common.disconnected'
-                )}
-              </span>
-            </div>
-          </div>
-          <div className={styles.apiBaseBlock}>
-            <span className={styles.apiLabel}>{t('dashboard.api_base')}</span>
-            <span className={styles.apiValue}>{apiBase || 'http://localhost:3000'}</span>
-          </div>
-        </div>
+    <div className={styles.page}>
+      <div className={styles.shell}>
+        <StatusLine refreshSignal={refreshSignal} dataAsOf={dataAsOf} />
 
-        <div className={styles.headerRight}>
-          <div className={styles.timeDisplay}>
-            <span className={styles.time}>{formattedDateTime}</span>
-            <span className={styles.date}>{formattedDate}</span>
-          </div>
-          <div className={styles.headerActions}>
-            <button
-              className={styles.actionBtn}
-              onClick={refreshDashboard}
-              title={t('common.refresh')}
-            >
-              <IconRefreshCw size={16} />
-              <span>{t('common.refresh')}</span>
-            </button>
-            <Link to="/config" className={styles.actionBtn} title={t('nav.system_config')}>
-              <IconSettings size={16} />
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* 2. Top Overview Row (Version & Health) */}
-      <section className={styles.overviewRow}>
-        <VersionCard
-          appVersion={__APP_VERSION__ || t('dashboard.version_unknown')}
-          apiVersion={serverVersion || t('dashboard.version_unknown')}
-          cpaBase={managerCpaBase || (useApiBaseAsCpaBase ? apiBase : '')}
-          serverBuildDate={serverBuildDate || undefined}
-          connectionStatus={connectionStatus}
-          refreshSignal={cardRefreshSignal}
-          usageEnabled={usageSummary.enabled}
-          usageLoading={usageSummary.loading && !usageSummary.summary}
-          usageError={usageSummary.error}
-          collectorStatus={collectorStatus}
-          collectorLoading={collectorLoading}
-          collectorError={collectorError}
-          errorLogCount={errorLogs.length}
-          errorLogsLoading={errorLogsLoading && !errorLogsLoaded}
-          errorLogsError={errorLogsError}
-          errorLogsLoaded={errorLogsLoaded}
-        />
-      </section>
-      {healthMetaError ? <div className="error-box" role="alert">{healthMetaError}</div> : null}
-
-      {/* 3. Today's Overview (Metrics Cards) */}
-      {usageSummary.enabled && (
-        <section className={styles.metricsRow}>
-          <h2 className={styles.sectionTitle}>{t('dashboard.today_overview_usage_service')}</h2>
-          <UsageMetricsCard
-            summary={usageSummary.summary}
-            topModels={usageSummary.topModels}
-            modelCostRank={usageSummary.modelCostRank}
-            loading={usageSummary.loading && !usageSummary.summary}
-            error={usageSummary.error}
-            lastRefreshedAt={usageSummary.lastRefreshedAt}
-            mode="metrics-only"
-          />
-        </section>
-      )}
-
-      {/* 4. Charts Row (Traffic, Activity, Tokens) */}
-      {usageSummary.enabled && !usageSummaryBootstrapError && (
-        <section className={styles.chartsRow}>
-          <TrafficOverviewCard
-            timeline={usageSummary.trafficTimeline}
-            trafficNowMs={usageSummary.summary?.window.now_ms}
-            todayRequestHealthTimeline={usageSummary.todayRequestHealthTimeline}
-            tokenMix={usageSummary.tokenMix}
-            loading={usageSummary.loading && !usageSummary.summary}
-          />
-        </section>
-      )}
-
-      {/* 5. Data & Status Row (Rankings, Health, Failures) */}
-      {usageSummary.enabled && !usageSummaryBootstrapError && (
-        <section className={styles.dataRow}>
-          <UsageMetricsCard
-            summary={usageSummary.summary}
-            topModels={usageSummary.topModels}
-            modelCostRank={usageSummary.modelCostRank}
-            loading={usageSummary.loading && !usageSummary.summary}
-            error={usageSummary.error}
-            lastRefreshedAt={usageSummary.lastRefreshedAt}
-            mode="rank-only"
-          />
-          <HealthAlertsCard
-            loading={usageSummary.loading && !usageSummary.summary}
-            recentFailures={usageSummary.recentFailures}
-            channelHealth={usageSummary.channelHealth}
-            authMetaMap={authMetaMap}
-            authFileMap={authFileMap}
-            sourceInfoMap={sourceInfoMap}
-            channelByAuthIndex={channelByAuthIndex}
-            apiKeyAliasMap={apiKeyAliasMap}
-          />
-          <CollectorStatusCard
-            enabled={usageSummary.enabled}
-            serviceBase={usageSummary.serviceBase}
-            managementKey={managementKey}
-            refreshSignal={cardRefreshSignal}
-            status={collectorStatus}
-            loading={collectorLoading}
-            error={collectorError}
-          />
-        </section>
-      )}
-
-      {/* 6. Quick Stats + Config Summary */}
-      {statsError ? <div role="alert">{statsError}</div> : null}
-      {modelsError ? <div role="alert">{modelsError}</div> : null}
-      <section className={styles.bottomSummaryRow}>
-        <div className={styles.quickStatsPanel}>
-          <div className={styles.bentoGrid}>
-            {quickStats.map((stat, index) => (
-              <Link
-                key={stat.path}
-                to={stat.path}
-                className={styles.bentoCard}
-                style={{ animationDelay: `${index * 80}ms` }}
-              >
-                <div className={styles.bentoIcon}>{stat.icon}</div>
-                <div className={styles.bentoContent}>
-                  <span className={styles.bentoLabel}>{stat.label}</span>
-                  <span className={styles.bentoValue}>{stat.loading ? '...' : stat.value}</span>
-                  {stat.sublabel && !stat.loading && (
-                    <span className={styles.bentoSublabel}>{stat.sublabel}</span>
-                  )}
+        <section
+          className={`${styles.band} ${filtered ? styles.filtered : ''} ${usage.loading ? styles.loading : ''}`}
+          ref={bandRef}
+          aria-label={t('dashboard.timeline_label')}
+          aria-busy={usage.loading}
+        >
+          <div className={styles.sky}>
+            <div className={styles.head}>
+              <h1 {...FOOTPRINT}>{t('dashboard.usage_title')}</h1>
+              <p className={styles.scope} {...FOOTPRINT}>
+                {scopeText}
+              </p>
+              {credential ? (
+                <div className={styles.chip} {...FOOTPRINT}>
+                  <span>{t('dashboard.filter_chip')}</span>
+                  <b title={credential.label}>{credential.label}</b>
+                  <button
+                    type="button"
+                    aria-label={t('dashboard.filter_clear')}
+                    title={t('dashboard.filter_clear')}
+                    onClick={() => setCredential(null)}
+                  >
+                    <svg viewBox="0 0 8 8" aria-hidden="true">
+                      <path d="M1.5 1.5l5 5M6.5 1.5l-5 5" />
+                    </svg>
+                  </button>
                 </div>
-                <div className={styles.bentoArrow}>{t('dashboard.manage')} →</div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {config && (
-          <div className={styles.configCard}>
-            <div className={styles.configHeader}>
-              <h3>{t('dashboard.current_config_summary')}</h3>
-            </div>
-            <div className={styles.configGrid}>
-              <div className={styles.configItem}>
-                <span className={styles.configLabel}>Debug</span>
-                <span className={`${styles.configValue} ${config.debug ? styles.on : styles.off}`}>
-                  {config.debug ? t('common.enabled') : t('common.disabled')}
-                </span>
-              </div>
-              <div className={styles.configItem}>
-                <span className={styles.configLabel}>
-                  {t('basic_settings.logging_to_file_enable')}
-                </span>
-                <span
-                  className={`${styles.configValue} ${config.loggingToFile ? styles.on : styles.off}`}
+              ) : null}
+              {usage.unavailable ? null : (
+                <div
+                  className={styles.tabs}
+                  role="tablist"
+                  aria-label={t('dashboard.range_label')}
+                  {...FOOTPRINT}
                 >
-                  {config.loggingToFile ? t('common.enabled') : t('common.disabled')}
-                </span>
-              </div>
-              <div className={styles.configItem}>
-                <span className={styles.configLabel}>{t('basic_settings.retry_count_label')}</span>
-                <span className={styles.configValue}>{config.requestRetry ?? 0}</span>
-              </div>
-              <div className={styles.configItem}>
-                <span className={styles.configLabel}>{t('basic_settings.ws_auth_enable')}</span>
-                <span className={`${styles.configValue} ${config.wsAuth ? styles.on : styles.off}`}>
-                  {config.wsAuth ? t('common.enabled') : t('common.disabled')}
-                </span>
-              </div>
-              <div className={styles.configItem}>
-                <span className={styles.configLabel}>{t('dashboard.routing_strategy')}</span>
-                <span className={`${styles.configBadge} ${routingStrategyBadgeClass}`}>
-                  {routingStrategyDisplay}
-                </span>
-              </div>
-              {config.proxyUrl && (
-                <div className={`${styles.configItem} ${styles.fullWidth}`}>
-                  <span className={styles.configLabel}>Proxy URL</span>
-                  <span className={styles.configValueMono}>{config.proxyUrl}</span>
+                  {USAGE_RANGES.map((item, index) => (
+                    <button
+                      key={item}
+                      type="button"
+                      role="tab"
+                      aria-selected={item === range}
+                      tabIndex={item === range ? 0 : -1}
+                      ref={(element) => {
+                        tabRefs.current[item] = element;
+                      }}
+                      onClick={() => setRange(item)}
+                      onKeyDown={(event) => moveRange(event, index)}
+                    >
+                      {t(`dashboard.range_${item}`)}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-            <Link to="/config" className={styles.configLink}>
-              {t('dashboard.view_full_config')} →
-            </Link>
+            {usage.error ? (
+              <p className={styles.alert} role="alert" {...FOOTPRINT}>
+                {usage.error}
+              </p>
+            ) : null}
+            {usage.unavailable ? (
+              <div className={styles.unavailable}>
+                <strong>
+                  {t(
+                    usage.unavailableReason === 'monitoring_disabled'
+                      ? 'monitoring.request_monitoring_disabled_title'
+                      : 'monitoring.request_monitoring_unavailable_title'
+                  )}
+                </strong>
+                <span>
+                  {t(
+                    usage.unavailableReason === 'monitoring_disabled'
+                      ? 'monitoring.request_monitoring_disabled_body'
+                      : usage.unavailableReason === 'service_unavailable'
+                        ? 'monitoring.request_monitoring_service_unavailable_body'
+                        : 'monitoring.request_monitoring_not_configured_body'
+                  )}
+                </span>
+              </div>
+            ) : (
+              <UsageKpis
+                kpis={view?.kpis ?? null}
+                models={view?.models ?? null}
+                live={live}
+                peak={view?.peak ?? null}
+                averageTpm={view?.averageTpm ?? 0}
+                format={format}
+                formatMoment={timelineText.peakTime}
+              />
+            )}
           </div>
-        )}
-      </section>
-    </>
+          {usage.unavailable ? null : (
+            <>
+              <UsageTimeline
+                bandRef={bandRef}
+                unit={view?.window.unit ?? 'hour'}
+                buckets={view?.buckets ?? NO_BUCKETS}
+                reference={view?.reference ?? null}
+                peak={view?.peak ?? null}
+                format={format}
+                text={timelineText}
+                ariaLabel={t(
+                  view?.window.unit === 'day'
+                    ? 'dashboard.timeline_chart_day'
+                    : 'dashboard.timeline_chart_hour'
+                )}
+                emptyLabel={view ? t('dashboard.no_usage') : ''}
+              />
+              <div className={styles.horizon} aria-hidden="true" />
+              <span className={`${styles.cap} ${styles.capIn}`} aria-hidden="true">
+                <i />
+                {t('dashboard.series_in')}
+              </span>
+              <span className={`${styles.cap} ${styles.capOut}`} aria-hidden="true">
+                <i />
+                {t('dashboard.series_out')}
+              </span>
+              {filtered ? (
+                <span className={`${styles.cap} ${styles.capReference}`}>
+                  <i />
+                  {t('dashboard.series_reference')}
+                </span>
+              ) : null}
+            </>
+          )}
+        </section>
+
+        {view ? (
+          <>
+            <UsageHeatmap grid={view.heatmap} format={format} />
+            <div className={styles.below}>
+              <ModelRankLists key={view.range} ranks={view.models} format={format} />
+              <CredentialList
+                rows={view.credentials}
+                selectedId={credential?.id ?? null}
+                format={format}
+                onToggle={toggleCredential}
+              />
+            </div>
+            <p className={styles.foot}>
+              {t('dashboard.footnote', { timeZone: format.timeZone })}
+            </p>
+          </>
+        ) : null}
+      </div>
+    </div>
   );
 }

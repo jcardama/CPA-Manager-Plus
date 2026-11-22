@@ -618,6 +618,11 @@
     gap: 0;
     overflow: hidden;
   }
+
+  &.main-content-flush {
+    padding: var(--header-height) 0 0;
+    gap: 0;
+  }
 }
 
 .grid {
@@ -752,6 +757,10 @@
       min-height: 0;
       padding: var(--header-height) 0 0;
       overflow: hidden;
+    }
+
+    &.main-content-flush {
+      padding: var(--header-height) 0 0;
     }
   }
 }

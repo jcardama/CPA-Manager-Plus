@@ -12,6 +12,7 @@ import {
   getDemoAuthFiles,
   getDemoCodexInspectionRun,
   getDemoDashboardSummary,
+  getDemoDashboardUsage,
   getDemoHeaderSnapshots,
   getDemoManagerConfig,
   getDemoModelPriceUsageSummary,
@@ -4051,6 +4052,18 @@ export const dashboardApi = {
       );
       return response.data;
     });
+  },
+  /** The analytics behind the dashboard: `monitoringAnalyticsApi.getAnalytics`, with a demo history that follows the request. */
+  getUsage: async (
+    base: string,
+    managementKey: string | undefined,
+    request: MonitoringAnalyticsRequest,
+    signal?: AbortSignal
+  ): Promise<MonitoringAnalyticsResponse> => {
+    if (__DEMO_SITE__ && isDemoMode()) {
+      return getDemoDashboardUsage(request);
+    }
+    return monitoringAnalyticsApi.getAnalytics(base, managementKey, request, signal);
   },
 };
 

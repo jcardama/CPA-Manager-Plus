@@ -5,13 +5,8 @@ import { LogsPage } from './logs/LogsPage';
 import { PluginsPage } from './plugins/PluginsPage';
 import { PluginResourcePage } from './plugins/PluginResourcePage';
 import { SystemPage } from './system/SystemPage';
-import { DashboardPage } from './dashboard/DashboardPage';
 import { AccountActionCandidatesPage } from './monitoring/AccountActionCandidatesPage';
 import { DatabaseStatusCard } from './system/components/DatabaseStatusCard';
-import { VersionCard } from './dashboard/components/VersionCard';
-import { UsageMetricsCard } from './dashboard/components/UsageMetricsCard';
-import { TrafficOverviewCard } from './dashboard/components/TrafficOverviewCard';
-import { HealthAlertsCard } from './dashboard/components/HealthAlertsCard';
 import { AccountProcessingPolicySection } from './config/components/AccountProcessingPolicySection';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { DropdownMenu } from '@/components/ui/DropdownMenu';
@@ -36,18 +31,12 @@ const mocks = vi.hoisted(() => ({
   logs: vi.fn(),
   errorLogs: vi.fn(),
   status: vi.fn(),
-  managerConfig: vi.fn(),
-  aliases: vi.fn(),
-  meta: vi.fn(),
   candidates: vi.fn(),
   ignoreCandidate: vi.fn(),
   deleteCandidate: vi.fn(),
-  usageSummary: { loading: false, summary: null as object | null, error: '' },
   clearLogs: vi.fn(),
   confirmation: vi.fn(),
   keys: vi.fn(),
-  files: vi.fn(),
-  providers: vi.fn(),
   noop: vi.fn(),
   fetchModels: vi.fn(),
   fetchConfig: vi.fn(),
@@ -112,15 +101,6 @@ vi.mock('@/hooks/useRequestMonitoringAvailability', () => ({
 vi.mock('@/services/api', () => ({
   pluginsApi: { list: mocks.plugins, updateEnabled: mocks.updatePlugin, deletePlugin: mocks.deletePlugin },
   pluginStoreApi: { list: mocks.pluginStore, install: mocks.installPlugin },
-  apiKeysApi: { list: mocks.keys },
-  authFilesApi: { list: mocks.files },
-  providersApi: {
-    getGeminiKeys: mocks.providers,
-    getCodexConfigs: mocks.providers,
-    getXAIConfigs: mocks.providers,
-    getClaudeConfigs: mocks.providers,
-    getOpenAIProviders: mocks.providers,
-  },
 }));
 vi.mock('@/services/api/apiKeys', () => ({ apiKeysApi: { list: mocks.keys } }));
 vi.mock('@/services/api/logs', () => ({
@@ -132,29 +112,8 @@ vi.mock('@/services/api/usageService', () => ({
     listAccountActionCandidates: mocks.candidates,
     ignoreAccountActionCandidate: mocks.ignoreCandidate,
     deleteAccountActionCandidateAuthFile: mocks.deleteCandidate,
-    getManagerConfig: mocks.managerConfig,
-    getApiKeyAliases: mocks.aliases,
     getAccountProcessingPolicy: mocks.policy, updateAccountProcessingPolicy: mocks.updatePolicy,
   },
-}));
-vi.mock('./monitoring/services/monitoringMetaService', () => ({
-  loadMonitoringMetaPayload: mocks.meta,
-}));
-vi.mock('./dashboard/hooks/useDashboardUsageSummary', () => ({
-  useDashboardUsageSummary: () => ({
-    enabled: true,
-    ...mocks.usageSummary,
-    recentFailures: [],
-    topModels: [],
-    modelCostRank: [],
-    trafficTimeline: [],
-    hourlyActivity: [],
-    tokenMix: [],
-    channelHealth: [],
-    failureSources: [],
-    serviceBase: mocks.managerBase,
-    refresh: mocks.noop,
-  }),
 }));
 vi.mock('./system/ManagerUpdates', () => ({ useManagerUpdates: () => ({ available: false }) }));
 vi.mock('./system/components/DatabaseStatusCard', () => ({
@@ -165,30 +124,6 @@ vi.mock('./system/components/DatabaseStatusCard', () => ({
     </section>
   ),
 }));
-vi.mock('./dashboard/components/VersionCard', () => ({
-  VersionCard: ({
-    collectorStatus,
-    errorLogCount,
-    collectorError,
-    errorLogsError,
-  }: {
-    collectorStatus: unknown;
-    errorLogCount: number;
-    collectorError: string;
-    errorLogsError: string;
-  }) => (
-    <section>
-      {JSON.stringify(collectorStatus)}
-      {errorLogCount}
-      {collectorError}
-      {errorLogsError}
-    </section>
-  ),
-}));
-vi.mock('./dashboard/components/UsageMetricsCard', () => ({ UsageMetricsCard: () => null }));
-vi.mock('./dashboard/components/CollectorStatusCard', () => ({ CollectorStatusCard: () => null }));
-vi.mock('./dashboard/components/HealthAlertsCard', () => ({ HealthAlertsCard: () => null }));
-vi.mock('./dashboard/components/TrafficOverviewCard', () => ({ TrafficOverviewCard: () => null }));
 vi.mock('./plugins/PluginStorePage', () => ({ PluginStorePage: () => null }));
 vi.mock('./plugins/pluginHostStyle', () => ({ createPluginHostStyleBridge: () => null }));
 vi.mock('./logs/hooks/useLogScroller', () => ({
@@ -235,7 +170,6 @@ beforeEach(() => {
   });
   mocks.auth.managementKey = 'a';
   mocks.auth.apiBase = 'https://a.test';
-  mocks.usageSummary = { loading: false, summary: null, error: '' };
   mocks.auth.connectionStatus = 'connected';
   mocks.auth.supportsPlugin = true;
   mocks.managerBase = 'https://manager.test';
@@ -254,17 +188,6 @@ beforeEach(() => {
   mocks.logs.mockReset();
   mocks.errorLogs.mockReset();
   mocks.status.mockReset();
-  mocks.managerConfig.mockReset().mockResolvedValue({
-    config: { cpaConnection: { cpaBaseUrl: 'https://cpa.last-good' } },
-  });
-  mocks.aliases.mockReset().mockResolvedValue({ items: [] });
-  mocks.meta.mockReset().mockResolvedValue({
-    authFiles: [],
-    authFilesLoaded: true,
-    channels: [],
-    channelsLoaded: true,
-    error: '',
-  });
   mocks.candidates.mockReset();
   mocks.confirmation.mockReset();
   mocks.clearLogs.mockReset();
@@ -272,8 +195,6 @@ beforeEach(() => {
   mocks.deleteCandidate.mockReset().mockResolvedValue({});
   mocks.ignoreCandidate.mockReset();
   mocks.keys.mockResolvedValue(['key']);
-  mocks.files.mockResolvedValue({ files: [] });
-  mocks.providers.mockResolvedValue([{}]);
   mocks.status.mockResolvedValue({ collector: { enabled: true }, marker: 'last-good' });
   mocks.errorLogs.mockResolvedValue({ files: [{ name: 'error-retained.log' }] });
 });
@@ -410,154 +331,6 @@ describe('page refresh interactions', () => {
     const output = text(renderer.root);
     expect(output).toContain('plugin bootstrap offline');
     expect(output).not.toContain('plugin_management.no_plugins');
-  });
-
-  it('does not render dashboard no-data regions after a bootstrap summary failure', async () => {
-    mocks.usageSummary = { loading: false, summary: null, error: 'summary bootstrap offline' };
-    await mount(<DashboardPage />);
-    expect(renderer.root.findAllByType(UsageMetricsCard)).toHaveLength(1);
-    expect(renderer.root.findAllByType(TrafficOverviewCard)).toHaveLength(0);
-    expect(renderer.root.findAllByType(HealthAlertsCard)).toHaveLength(0);
-  });
-
-  it('keeps manager CPA base unknown when manager config bootstrap fails', async () => {
-    mocks.managerConfig.mockRejectedValueOnce(new Error('manager config bootstrap offline'));
-    await mount(<DashboardPage />);
-    const version = renderer.root.findByType(VersionCard);
-
-    expect(version.props.cpaBase).toBe('');
-    expect(text(renderer.root)).toContain('notification.refresh_failed');
-  });
-
-  it('uses channel config fallback only until a successful remote snapshot exists', async () => {
-    const fallbackChannel = {
-      key: 'fallback:0',
-      name: 'fallback',
-      baseUrl: 'https://fallback.test',
-      host: 'fallback.test',
-      disabled: false,
-      authIndices: ['auth-fallback'],
-      modelNames: [],
-    };
-    mocks.meta.mockResolvedValueOnce({
-      authFiles: [],
-      authFilesLoaded: true,
-      channels: [fallbackChannel],
-      channelsLoaded: false,
-      error: 'channels offline',
-    });
-
-    await mount(<DashboardPage />);
-    const health = () => renderer.root.findByType(HealthAlertsCard);
-    expect(health().props.channelByAuthIndex.has('auth-fallback')).toBe(true);
-    expect(text(renderer.root)).toContain('notification.refresh_failed');
-
-    mocks.meta.mockResolvedValueOnce({
-      authFiles: [],
-      authFilesLoaded: true,
-      channels: [],
-      channelsLoaded: true,
-      error: '',
-    });
-    await act(async () => { await refresh(); });
-    expect(health().props.channelByAuthIndex.has('auth-fallback')).toBe(false);
-
-    mocks.meta.mockResolvedValueOnce({
-      authFiles: [],
-      authFilesLoaded: true,
-      channels: [fallbackChannel],
-      channelsLoaded: false,
-      error: 'channels offline again',
-    });
-    await act(async () => { await refresh(); });
-    expect(health().props.channelByAuthIndex.has('auth-fallback')).toBe(false);
-    expect(text(renderer.root)).toContain('notification.refresh_failed');
-  });
-
-  it('retains dashboard auxiliary snapshots across real partial meta refresh failures', async () => {
-    mocks.meta.mockResolvedValue({
-      authFiles: [
-        {
-          name: 'retained.json',
-          type: 'codex',
-          provider: 'codex',
-          authIndex: 'auth-retained',
-          account: 'retained@example.com',
-        },
-      ],
-      authFilesLoaded: true,
-      channels: [
-        {
-          key: 'retained:0',
-          name: 'retained',
-          baseUrl: 'https://channel.test',
-          host: 'channel.test',
-          disabled: false,
-          authIndices: ['auth-retained'],
-          modelNames: [],
-        },
-      ],
-      channelsLoaded: true,
-      error: '',
-    });
-    mocks.aliases.mockResolvedValue({
-      items: [{ apiKeyHash: 'retained-hash', alias: 'Retained key' }],
-    });
-
-    await mount(<DashboardPage />);
-    const version = () => renderer.root.findByType(VersionCard);
-    const health = () => renderer.root.findByType(HealthAlertsCard);
-    expect(version().props.cpaBase).toBe('https://cpa.last-good');
-    expect(health().props.authFileMap.has('auth-retained')).toBe(true);
-    expect(health().props.channelByAuthIndex.has('auth-retained')).toBe(true);
-    expect(health().props.apiKeyAliasMap.has('retained-hash')).toBe(true);
-
-    mocks.managerConfig.mockRejectedValueOnce(new Error('manager config offline'));
-    mocks.meta.mockResolvedValueOnce({
-      authFiles: [],
-      authFilesLoaded: false,
-      channels: [],
-      channelsLoaded: false,
-      error: 'meta offline',
-    });
-    mocks.aliases.mockRejectedValueOnce(new Error('aliases offline'));
-    await act(async () => { await refresh(); });
-
-    expect(version().props.cpaBase).toBe('https://cpa.last-good');
-    expect(health().props.authFileMap.has('auth-retained')).toBe(true);
-    expect(health().props.channelByAuthIndex.has('auth-retained')).toBe(true);
-    expect(health().props.apiKeyAliasMap.has('retained-hash')).toBe(true);
-    expect(text(renderer.root)).toContain('notification.refresh_failed');
-  });
-
-  it('uses a successful empty dashboard summary during background refresh', async () => {
-    await mount(<DashboardPage />);
-    mocks.usageSummary.loading = true;
-    await act(async () => { renderer.update(<DashboardPage />); });
-    expect(renderer.root.findAllByType(UsageMetricsCard).every(n => n.props.loading)).toBe(true);
-    mocks.usageSummary.summary = { window: { now_ms: 1 } };
-    await act(async () => { renderer.update(<DashboardPage />); });
-    for (const component of [UsageMetricsCard, TrafficOverviewCard, HealthAlertsCard]) {
-      const cards = renderer.root.findAllByType(component);
-      expect(cards.length).toBeGreaterThan(0);
-      expect(cards.every(n => n.props.loading === false)).toBe(true);
-    }
-  });
-
-  it('distinguishes error-log bootstrap failure from a successfully loaded zero count', async () => {
-    mocks.errorLogs.mockRejectedValueOnce(new Error('bootstrap logs offline'));
-    await mount(<DashboardPage />);
-    const version = () => renderer.root.findByType(VersionCard).props;
-    expect(version().errorLogsLoaded).toBe(false);
-    expect(version().errorLogsError).toBe('bootstrap logs offline');
-    mocks.errorLogs.mockResolvedValueOnce({ files: [] });
-    await act(async () => { await refresh(); });
-    expect(version().errorLogsLoaded).toBe(true);
-    expect(version().errorLogCount).toBe(0);
-    mocks.errorLogs.mockRejectedValueOnce(new Error('refresh logs offline'));
-    await act(async () => { await refresh(); });
-    expect(version().errorLogsLoaded).toBe(true);
-    expect(version().errorLogCount).toBe(0);
   });
 
   it.each(['installed-read', 'installed-delete', 'store-delete'] as const)(
@@ -819,48 +592,6 @@ describe('page refresh interactions', () => {
     expect(text(renderer.root)).not.toContain('Retained Store Plugin');
   });
 
-  it('attributes an error-log-only failure to logs while keeping collector health and last-known count', async () => {
-    await mount(<DashboardPage />);
-    mocks.errorLogs.mockRejectedValueOnce(new Error('logs offline'));
-    await act(async () => {
-      await refresh();
-    });
-    const version = () => renderer.root.findByType(VersionCard);
-    expect(version().props.collectorError).toBe('');
-    expect(version().props.errorLogsError).toBe('logs offline');
-    expect(version().props.errorLogCount).toBe(1);
-    expect(version().props.collectorStatus.marker).toBe('last-good');
-    await act(async () => {
-      await refresh();
-    });
-    expect(version().props.errorLogsError).toBe('');
-  });
-
-  it('keeps cached model count visible and exposes a failed background refresh', async () => {
-    await mount(<DashboardPage />);
-    const modelLink = () =>
-      renderer.root.findAllByType('a').find((n) => text(n).includes('dashboard.available_models'))!;
-    expect(text(modelLink())).toContain('1');
-    mocks.fetchModels.mockImplementationOnce(async () => {
-      mocks.models.error = 'models offline';
-    });
-    await act(async () => {
-      await refresh();
-      renderer.update(<DashboardPage />);
-    });
-    expect(text(modelLink())).toContain('1');
-    expect(
-      renderer.root
-        .findAllByProps({ role: 'alert' })
-        .some((n) => text(n).includes('models offline'))
-    ).toBe(true);
-    mocks.models.error = null;
-    await act(async () => {
-      renderer.update(<DashboardPage />);
-    });
-    expect(text(renderer.root)).not.toContain('models offline');
-  });
-
   it('keeps store results on failure and only accepts the latest overlapping refresh', async () => {
     const { PluginStorePage } = await vi.importActual<typeof import('./plugins/PluginStorePage')>('./plugins/PluginStorePage');
     const data = { plugins: [], sources: [], sourceErrors: [], pluginsEnabled: true, pluginsDir: 'plugins' };
@@ -975,12 +706,12 @@ describe('page refresh interactions', () => {
     ).toBe(false);
   });
 
-  it.each(['logs', 'system', 'dashboard', 'candidates'] as const)('rejects a late %s response after a connection switch', async (kind) => {
+  it.each(['logs', 'system', 'candidates'] as const)('rejects a late %s response after a connection switch', async (kind) => {
     const old = deferred<unknown>(), next = deferred<unknown>();
     mocks.logs.mockResolvedValue({ lines: [] }); mocks.candidates.mockResolvedValue({ items: [], pendingCount: 0 });
     const api = kind === 'logs' ? mocks.logs : kind === 'candidates' ? mocks.candidates : mocks.status;
     api.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise);
-    const element = () => kind === 'logs' ? <LogsPage /> : kind === 'system' ? <SystemPage /> : kind === 'dashboard' ? <DashboardPage /> : <AccountActionCandidatesPage />;
+    const element = () => kind === 'logs' ? <LogsPage /> : kind === 'system' ? <SystemPage /> : <AccountActionCandidatesPage />;
     await mount(element());
     mocks.auth.managementKey = 'b';
     await act(async () => { renderer.update(element()); });
@@ -1131,35 +862,6 @@ describe('page refresh interactions', () => {
     });
     expect(renderer.root.findByType(DatabaseStatusCard).props.status).toBe(originalStatus);
     expect(renderer.root.findByType(DatabaseStatusCard).props.error).toBe('offline');
-  });
-
-  it('retains dashboard counts and operational snapshots when only some endpoints fail', async () => {
-    await mount(<DashboardPage />);
-    const version = () => renderer.root.findByType(VersionCard);
-    const collector = version().props.collectorStatus;
-    expect(version().props.errorLogCount).toBe(1);
-    const next = deferred<unknown>();
-    mocks.status.mockReturnValueOnce(next.promise);
-    mocks.providers.mockRejectedValue(new Error('providers offline'));
-    mocks.errorLogs.mockRejectedValueOnce(new Error('logs offline'));
-    let pending!: Promise<unknown>;
-    act(() => {
-      pending = refresh();
-    });
-    expect(version().props.collectorStatus).toBe(collector);
-    expect(version().props.errorLogCount).toBe(1);
-    await act(async () => {
-      next.reject(new Error('collector offline'));
-      await pending;
-    });
-    expect(version().props.collectorStatus).toBe(collector);
-    expect(version().props.errorLogCount).toBe(1);
-    expect(text(renderer.root)).toContain('notification.refresh_failed');
-    const providerLink = renderer.root
-      .findAllByType('a')
-      .find((n) => text(n).includes('nav.ai_providers'));
-    expect(providerLink).toBeDefined();
-    expect(text(providerLink!)).toContain('5');
   });
 
   it('retains candidates after failure and clears them on filter or manager changes', async () => {

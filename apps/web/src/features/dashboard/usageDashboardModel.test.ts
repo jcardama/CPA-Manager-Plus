@@ -15,6 +15,7 @@ import {
   buildUsageBuckets,
   buildUsageKpis,
   findPeakTpm,
+  isCoreDisconnected,
   resolveTimelineScale,
 } from './usageDashboardModel';
 
@@ -153,6 +154,14 @@ describe('peak rate', () => {
     const window = buildRangeWindow('24h', NOW);
 
     expect(findPeakTpm([], buildUsageBuckets([], window, NOW))).toBeNull();
+  });
+});
+
+describe('connection state', () => {
+  it('calls a lost or failed connection disconnected, and a pending one still live', () => {
+    expect(
+      (['connected', 'connecting', 'disconnected', 'error'] as const).map(isCoreDisconnected)
+    ).toEqual([false, false, true, true]);
   });
 });
 

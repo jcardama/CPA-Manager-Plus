@@ -82,25 +82,23 @@
   cursor: pointer;
 }
 
-.narrowOnly {
-  display: none;
-}
-
-/* status line */
-.status {
+/* the dashboard's status, shown in the shell header through its slots: it follows the app theme there */
+.headerStatus {
   display: flex;
   align-items: center;
-  gap: 22px;
-  height: 30px;
-  padding: 0 var(--gut);
-  border-bottom: 1px solid var(--rule);
-  overflow: hidden;
-  color: var(--muted);
-  font: 400 11px/1 var(--mono);
+  gap: 18px;
+  color: var(--app-text-muted, #7f8aa3);
+  font:
+    400 11px/1 'DM Mono',
+    ui-monospace,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace;
   white-space: nowrap;
 
   b {
-    color: var(--text);
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -109,52 +107,75 @@
   }
 }
 
-.connection {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-
-  i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  &.connected i {
-    background: var(--live);
-    box-shadow: 0 0 0 3px rgba(91, 227, 180, 0.16);
-  }
-
-  &.connecting i {
-    background: var(--peak);
-  }
+.headerAsOf {
+  margin: 0 12px;
 }
 
-.update {
+.update,
+.disconnected {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   height: 20px;
   padding: 0 9px;
-  border: 1px solid #39435c;
+  border: 1px solid var(--app-border-strong, #39435c);
   border-radius: 999px;
-  color: var(--text);
+  color: var(--text-primary);
+}
 
-  svg {
-    width: 8px;
-    height: 8px;
-    fill: currentColor;
-  }
+.update svg {
+  width: 8px;
+  height: 8px;
+  fill: currentColor;
 }
 
 a.update:hover {
-  border-color: var(--soft);
+  border-color: var(--app-text-muted, #7f8aa3);
 }
 
-.asOf {
-  margin-left: auto;
+.disconnected {
+  border-color: color-mix(in srgb, var(--error-color, #ef4444) 55%, transparent);
+  background: color-mix(in srgb, var(--error-color, #ef4444) 14%, transparent);
+  color: var(--error-color, #ef4444);
+
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+}
+
+// The header gives up its detail as it narrows: the versions first, then the chips' wording.
+@media (max-width: 1280px) {
+  .headerVersion {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .headerDetail {
+    display: none;
+  }
+}
+
+// Beside the title, a phone header has room for a mark but not for a word.
+@media (max-width: 480px) {
+  .chipText {
+    display: none;
+  }
+
+  .update,
+  .disconnected {
+    padding: 0 6px;
+  }
+
+  // One mark fits, and a lost connection matters more than a pending update.
+  .disconnected ~ .update {
+    display: none;
+  }
 }
 
 /* the band: sky above the horizon, ground below it */
@@ -603,6 +624,15 @@ a.update:hover {
     border: 1px solid var(--live);
     border-radius: 50%;
     animation: usage-dashboard-pulse 2.2s ease-out infinite;
+  }
+}
+
+// Nothing is live while the panel cannot reach the core.
+.pulseOff {
+  background: var(--muted);
+
+  &::after {
+    display: none;
   }
 }
 
@@ -1181,18 +1211,6 @@ a.update:hover {
   }
 
   .wideOnly {
-    display: none;
-  }
-
-  .narrowOnly {
-    display: inline;
-  }
-
-  .status {
-    gap: 13px;
-  }
-
-  .asOf {
     display: none;
   }
 

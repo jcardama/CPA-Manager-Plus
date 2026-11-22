@@ -4,8 +4,8 @@ import { useAuthStore } from '@/stores';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePanelFeatureAvailability } from '@/hooks/usePanelFeatureAvailability';
 import { CredentialList } from './components/CredentialList';
+import { HeaderStatus } from './components/HeaderStatus';
 import { ModelRankLists } from './components/ModelRankLists';
-import { StatusLine } from './components/StatusLine';
 import { UsageHeatmap } from './components/UsageHeatmap';
 import { UsageKpis } from './components/UsageKpis';
 import { UsageTimeline } from './components/UsageTimeline';
@@ -22,6 +22,7 @@ import {
   buildUsageKpis,
   credentialName,
   findPeakTpm,
+  isCoreDisconnected,
   type CredentialRow,
   type UsageRange,
 } from './usageDashboardModel';
@@ -91,6 +92,7 @@ function DashboardPageContent() {
   const format = useMemo(() => createUsageFormatters(i18n.language), [i18n.language]);
   const view = useMemo(() => (data ? buildView(data) : null), [data]);
   const quota = useCredentialQuota(view?.credentials ?? NO_CREDENTIALS);
+  const disconnected = useAuthStore((state) => isCoreDisconnected(state.connectionStatus));
 
   const timelineText = useMemo<TimelineText>(
     () => ({
@@ -166,7 +168,11 @@ function DashboardPageContent() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <StatusLine refreshSignal={refreshSignal} dataAsOf={dataAsOf} />
+        <HeaderStatus
+          refreshSignal={refreshSignal}
+          disconnected={disconnected}
+          dataAsOf={dataAsOf}
+        />
 
         <section
           className={`${styles.band} ${filtered ? styles.filtered : ''} ${usage.loading ? styles.loading : ''}`}
@@ -251,6 +257,7 @@ function DashboardPageContent() {
                 kpis={view?.kpis ?? null}
                 models={view?.models ?? null}
                 live={live}
+                disconnected={disconnected}
                 peak={view?.peak ?? null}
                 averageTpm={view?.averageTpm ?? 0}
                 format={format}

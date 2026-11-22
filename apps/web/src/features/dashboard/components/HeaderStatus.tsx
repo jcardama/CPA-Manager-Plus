@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useAuthStore } from '@/stores';
+import { HeaderSlot } from '@/components/layout/HeaderSlot';
 import { useVersionStatus, type VersionUpdate } from '../hooks/useVersionStatus';
 import styles from '../DashboardPage.module.scss';
 
-interface StatusLineProps {
+interface HeaderStatusProps {
   refreshSignal: number;
+  /** The panel has lost the CPA core. */
+  disconnected: boolean;
   /** When the data on the page was read; absent until the first load. */
   dataAsOf: string | null;
 }
@@ -19,9 +21,9 @@ const UpArrow = () => (
 
 const displayVersion = (version: string) => `v${version.trim().replace(/^[vV]+/, '')}`;
 
-export function StatusLine({ refreshSignal, dataAsOf }: StatusLineProps) {
+/** The dashboard's status, shown in the shell header: versions, update notices and the data's age. */
+export function HeaderStatus({ refreshSignal, disconnected, dataAsOf }: HeaderStatusProps) {
   const { t } = useTranslation();
-  const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const versions = useVersionStatus(refreshSignal);
 
   const version = (value: string, releaseUrl: string) => {
@@ -44,9 +46,11 @@ export function StatusLine({ refreshSignal, dataAsOf }: StatusLineProps) {
     const content: ReactNode = (
       <>
         <UpArrow />
-        {t('dashboard.status_update')}
-        <span className={styles.wideOnly}>
-          {t('dashboard.status_update_detail', { name, version: displayVersion(update.version) })}
+        <span className={styles.chipText}>
+          {t('dashboard.status_update')}
+          <span className={styles.headerDetail}>
+            {t('dashboard.status_update_detail', { name, version: displayVersion(update.version) })}
+          </span>
         </span>
       </>
     );
@@ -76,30 +80,31 @@ export function StatusLine({ refreshSignal, dataAsOf }: StatusLineProps) {
   };
 
   return (
-    <div className={styles.status} role="status" aria-label={t('dashboard.status_label')}>
-      <span className={`${styles.connection} ${styles[connectionStatus] ?? ''}`}>
-        <i />
-        {t(
-          connectionStatus === 'connected'
-            ? 'common.connected'
-            : connectionStatus === 'connecting'
-              ? 'common.connecting'
-              : 'common.disconnected'
-        )}
-      </span>
-      <span>
-        {t('title.abbr')} {version(versions.managerVersion, versions.managerReleaseUrl)}
-      </span>
-      <span>
-        <span className={styles.wideOnly}>{t('dashboard.status_core')}</span>
-        <span className={styles.narrowOnly}>{t('dashboard.status_core_short')}</span>{' '}
-        {version(versions.coreVersion, versions.coreReleaseUrl)}
-      </span>
-      {updateNotice(t('title.abbr'), versions.managerUpdate)}
-      {updateNotice(t('dashboard.status_core'), versions.coreUpdate)}
+    <>
+      <HeaderSlot name="start">
+        <div className={styles.headerStatus} role="status" aria-label={t('dashboard.status_label')}>
+          {disconnected ? (
+            <span className={styles.disconnected} title={t('common.disconnected')}>
+              <span className={styles.chipText}>{t('common.disconnected')}</span>
+            </span>
+          ) : null}
+          <span className={styles.headerVersion}>
+            {t('title.abbr')} {version(versions.managerVersion, versions.managerReleaseUrl)}
+          </span>
+          <span className={styles.headerVersion}>
+            {t('dashboard.status_core')} {version(versions.coreVersion, versions.coreReleaseUrl)}
+          </span>
+          {updateNotice(t('title.abbr'), versions.managerUpdate)}
+          {updateNotice(t('dashboard.status_core'), versions.coreUpdate)}
+        </div>
+      </HeaderSlot>
       {dataAsOf ? (
-        <span className={styles.asOf}>{t('dashboard.status_data_as_of', { time: dataAsOf })}</span>
+        <HeaderSlot name="end">
+          <span className={`${styles.headerStatus} ${styles.headerAsOf} ${styles.headerDetail}`}>
+            {t('dashboard.status_data_as_of', { time: dataAsOf })}
+          </span>
+        </HeaderSlot>
       ) : null}
-    </div>
+    </>
   );
 }

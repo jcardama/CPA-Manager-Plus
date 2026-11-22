@@ -11,6 +11,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { PageTransition } from '@/components/common/PageTransition';
+import { HeaderSlotOutlet } from '@/components/layout/HeaderSlot';
 import { DatabaseMaintenanceBanner } from '@/components/common/DatabaseMaintenanceBanner';
 import { DatabaseMaintenanceProvider } from '@/components/common/DatabaseMaintenanceContext';
 import { MainRoutes } from '@/router/MainRoutes';
@@ -761,6 +762,8 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
             >
               <span className="breadcrumb-item">{currentRouteLabel}</span>
             </nav>
+            <HeaderSlotOutlet name="start" />
+            <HeaderSlotOutlet name="end" />
           </div>
 
           <div className="navbar-right">

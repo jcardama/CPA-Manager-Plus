@@ -764,3 +764,47 @@
     }
   }
 }
+
+// Fork: a collapsed sidebar is hidden outright on desktop, leaving no icon rail. The header
+// toggle stays in place and reopens it; the mobile drawer above is untouched.
+@media (min-width: #{$breakpoint-mobile + 1}) {
+  .app-shell.sidebar-is-collapsed {
+    --sidebar-active-width: 0px;
+  }
+
+  .sidebar {
+    transition:
+      width 0.28s ease,
+      transform 0.28s ease,
+      visibility 0.28s;
+
+    &.collapsed {
+      transform: translateX(-100%);
+      visibility: hidden;
+    }
+  }
+}
+
+// Fork: header slots a page fills through HeaderSlot. An unfilled slot takes no room, and a
+// filled one gives way before the toggle and the title do.
+.navbar-slot {
+  display: flex;
+  flex: 0 1000 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.navbar-slot-start {
+  margin-left: 12px;
+}
+
+.navbar-slot-end {
+  flex: none;
+  margin-left: auto;
+}

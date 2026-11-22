@@ -17,6 +17,8 @@ interface UsageKpisProps {
   kpis: Kpis | null;
   models: ModelRanks | null;
   live: { tpm: number; rpm: number } | null;
+  /** The panel has lost the CPA core, so the rate shown has stopped moving. */
+  disconnected: boolean;
   peak: UsagePeak | null;
   averageTpm: number;
   format: UsageFormatters;
@@ -54,6 +56,7 @@ export function UsageKpis({
   kpis,
   models,
   live,
+  disconnected,
   peak,
   averageTpm,
   format,
@@ -201,8 +204,11 @@ export function UsageKpis({
 
       <section className={styles.kpi} aria-label={t('dashboard.kpi_tpm_label')}>
         <h2 className={styles.kpiLabel}>
-          {t('dashboard.kpi_tpm')}
-          <i className={styles.pulse} aria-hidden="true" />
+          {t(disconnected ? 'dashboard.kpi_tpm_disconnected' : 'dashboard.kpi_tpm')}
+          <i
+            className={`${styles.pulse} ${disconnected ? styles.pulseOff : ''}`}
+            aria-hidden="true"
+          />
         </h2>
         <div className={styles.kpiValue}>
           <BigNumber

@@ -1,4 +1,5 @@
 import { maskEmailLike } from '@/features/monitoring/model/base';
+import type { ConnectionStatus } from '@/types';
 import type {
   MonitoringAnalyticsCredentialStatRow,
   MonitoringAnalyticsHeatmapPoint,
@@ -196,6 +197,13 @@ export function findPeakTpm(
   }
   return peak;
 }
+
+/**
+ * The panel has lost the CPA core, so nothing on the page is live any more.
+ * A connection still being made is not counted: it settles within moments.
+ */
+export const isCoreDisconnected = (status: ConnectionStatus) =>
+  status === 'disconnected' || status === 'error';
 
 /** Mean tokens per minute over the time the bars have covered so far. */
 export function averageTpm(buckets: UsageBucket[]) {

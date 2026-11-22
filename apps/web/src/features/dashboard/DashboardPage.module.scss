@@ -1095,7 +1095,9 @@ a.update:hover {
 }
 
 .filterIcon {
-  align-self: center;
+  /* Sit on the credential name's first 16px line, not the middle of the two-line cell. */
+  align-self: start;
+  margin-top: 2px;
   width: 12px;
   height: 12px;
   fill: none;

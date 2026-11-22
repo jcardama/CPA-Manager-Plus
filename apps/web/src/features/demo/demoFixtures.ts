@@ -5977,6 +5977,8 @@ const DEMO_DASHBOARD_CREDENTIAL_IDS = [
   'kimi-coding.json',
   'xai-ops.json',
   'codex-email-user.json',
+  // An API-key credential: it has usage but no quota windows.
+  'openai-support-02.json',
 ];
 // Kimi's demo seat runs a model the demo price list lacks, so the dashboard has unpriced usage to disclose.
 const DEMO_DASHBOARD_UNPRICED_PROVIDER_MODELS: Record<string, string> = { kimi: 'kimi-k2' };
@@ -6032,7 +6034,9 @@ export const getDemoDashboardUsage = (
   let selectedShare = 0;
 
   rows.forEach((row, index) => {
-    const rowModels = row.models ?? [];
+    const rowModels = row.models?.length
+      ? row.models
+      : [{ model: 'gpt-4.1-mini', total_tokens: row.total_tokens, cost: row.cost }];
     const unpricedModel = DEMO_DASHBOARD_UNPRICED_PROVIDER_MODELS[row.auth_provider_snapshot ?? ''];
     const inputShare = 0.97 - (index % 3) * 0.012;
     const cacheShare = 0.9 - (index % 4) * 0.07;

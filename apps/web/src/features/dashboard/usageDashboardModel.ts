@@ -333,6 +333,9 @@ export interface CredentialRow {
   id: string;
   label: string;
   provider: string;
+  /** The auth file and index the usage was recorded under, which identify its quota. */
+  authFile: string;
+  authIndex: string;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -361,6 +364,8 @@ export function buildCredentialRows(stats: MonitoringAnalyticsCredentialStatRow[
         ].find((value) => value?.trim()) ?? stat.id
       ),
       provider: stat.auth_provider_snapshot?.trim() ?? '',
+      authFile: stat.auth_file_snapshot?.trim() ?? '',
+      authIndex: stat.auth_index?.trim() ?? '',
       inputTokens: stat.input_tokens,
       outputTokens: stat.output_tokens,
       totalTokens: stat.total_tokens,

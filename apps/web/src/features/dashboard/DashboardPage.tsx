@@ -10,6 +10,7 @@ import { UsageHeatmap } from './components/UsageHeatmap';
 import { UsageKpis } from './components/UsageKpis';
 import { UsageTimeline } from './components/UsageTimeline';
 import { FOOTPRINT, type TimelineText } from './components/timelineChart';
+import { useCredentialQuota } from './hooks/useCredentialQuota';
 import { useUsageDashboard, type UsageDashboardData } from './hooks/useUsageDashboard';
 import {
   USAGE_RANGES,
@@ -28,6 +29,7 @@ import { createUsageFormatters, formatCompact } from './usageDashboardFormat';
 import styles from './DashboardPage.module.scss';
 
 const NO_BUCKETS: never[] = [];
+const NO_CREDENTIALS: never[] = [];
 
 export function DashboardPage() {
   const connectionScope = useAuthStore((state) =>
@@ -88,6 +90,7 @@ function DashboardPageContent() {
 
   const format = useMemo(() => createUsageFormatters(i18n.language), [i18n.language]);
   const view = useMemo(() => (data ? buildView(data) : null), [data]);
+  const quota = useCredentialQuota(view?.credentials ?? NO_CREDENTIALS);
 
   const timelineText = useMemo<TimelineText>(
     () => ({
@@ -299,6 +302,8 @@ function DashboardPageContent() {
               <CredentialList
                 rows={view.credentials}
                 selectedId={credential?.id ?? null}
+                quota={quota.byCredentialId}
+                nowMs={quota.nowMs}
                 format={format}
                 onToggle={toggleCredential}
               />

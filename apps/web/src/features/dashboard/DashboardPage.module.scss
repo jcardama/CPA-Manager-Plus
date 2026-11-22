@@ -811,7 +811,7 @@ a.update:hover {
 /* rankings */
 .below {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 40px 56px;
   padding: 36px var(--gut) 30px;
 }
@@ -844,9 +844,9 @@ a.update:hover {
 
 .row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto 50px;
+  grid-template-columns: 20px minmax(0, 1fr) auto 46px;
   align-items: baseline;
-  column-gap: 10px;
+  column-gap: 8px;
   padding: 9px 0;
   border-bottom: 1px solid var(--rule);
   font: 400 12.5px/16px var(--mono);
@@ -921,7 +921,7 @@ a.update:hover {
 .credentialsHead,
 .credential {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 50px 50px 50px 46px 14px;
+  grid-template-columns: minmax(0, 1fr) 76px 48px 48px 48px 44px 14px;
   align-items: baseline;
   column-gap: 8px;
 }
@@ -939,18 +939,15 @@ a.update:hover {
   }
 }
 
-.credential {
-  width: 100%;
-  padding: 9px 8px 9px 10px;
+.credentialItem {
   border-bottom: 1px solid var(--rule);
   border-left: 2px solid transparent;
-  font: 400 12.5px/16px var(--mono);
 
   &:hover {
     background: rgba(200, 211, 255, 0.045);
   }
 
-  &[aria-pressed='true'] {
+  &.selected {
     border-left-color: var(--pick);
     background: rgba(200, 211, 255, 0.09);
 
@@ -958,20 +955,117 @@ a.update:hover {
       opacity: 1;
       stroke: var(--pick);
     }
-
-    .bar i {
-      background: var(--pick);
-    }
   }
+}
+
+.credential {
+  width: 100%;
+  padding: 9px 8px 9px 10px;
+  font: 400 12.5px/16px var(--mono);
 
   &:hover .filterIcon,
   &:focus-visible .filterIcon {
     opacity: 1;
   }
+}
 
-  .bar {
-    grid-column: 1 / -1;
+.quotaAge {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.quotaStaleText {
+  color: var(--muted);
+}
+
+/* one hairline bar per quota window, sharing the row equally */
+.quotaBars {
+  display: flex;
+  gap: 14px;
+  padding: 0 8px 9px 10px;
+}
+
+.quotaCell {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font: 400 9.5px/12px var(--mono);
+  letter-spacing: 0.05em;
+
+  &:hover .quotaTip,
+  &:focus .quotaTip {
+    display: block;
   }
+
+  // The tip stays inside the list: centred under a middle bar, flush right under the last.
+  &:not(:first-child):not(:last-child) .quotaTip {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  &:last-child:not(:first-child) .quotaTip {
+    right: 0;
+    left: auto;
+  }
+}
+
+// A long window name gives way to its bar.
+.quotaLabel {
+  flex: 0 1 auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quotaTrack {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: #1c2335;
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+    border-radius: 1px;
+    background: var(--in);
+  }
+}
+
+.warning .quotaTrack i {
+  background: var(--peak);
+}
+
+.critical .quotaTrack i {
+  background: #ff6b6b;
+}
+
+.quotaStale .quotaTrack i {
+  opacity: 0.45;
+}
+
+.quotaTip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  display: none;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border: 1px solid #2b3348;
+  border-radius: 8px;
+  background: rgba(8, 10, 18, 0.96);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font: 400 11px/1.45 var(--mono);
+  letter-spacing: 0;
+  pointer-events: none;
 }
 
 .credentialName {
@@ -1218,6 +1312,10 @@ a.update:hover {
     padding-top: 28px;
   }
 
+  .sectionHead {
+    flex-wrap: wrap;
+  }
+
   .credentialsHead {
     display: none;
   }
@@ -1247,10 +1345,15 @@ a.update:hover {
 
   .credentialNumbers {
     display: flex;
+    flex-wrap: wrap;
     grid-column: 1 / -1;
-    gap: 14px;
+    gap: 0 10px;
     color: var(--soft);
-    font-size: 11.5px;
+    font-size: 11px;
+
+    span {
+      white-space: nowrap;
+    }
 
     span::before {
       content: attr(data-label) ' ';
